@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 盛世年会 - 幸运抽奖系统 (马年特别版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
+    
+    <style>
+        :root { --gold: #ffd700; --crimson: #c41e3a; --dark-red: #4a0000; }
+        body { background: radial-gradient(circle at center, #800000 0%, #200000 100%); color: white; font-family: 'PingFang SC', sans-serif; overflow: hidden; height: 100vh; }
+        body::before { content: ""; position: fixed; inset: 0; background-image: url('https://www.transparenttextures.com/patterns/oriental-tiles.png'); opacity: 0.1; pointer-events: none; z-index: 0; }
+        
+        .title-font { font-family: 'ZCOOL KuaiLe', cursive; background: linear-gradient(to bottom, #fff7ad 0%, #ffa500 50%, #b8860b 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.5)); }
+        
+        #lotteryStage { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.95); display: none; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+        .name-stream { position: absolute; font-size: 2rem; font-weight: bold; color: rgba(255, 215, 0, 0.3); white-space: nowrap; pointer-events: none; user-select: none; }
+        
+        .winner-card { animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; opacity: 0; transform: scale(0); }
+        @keyframes popIn { to { opacity: 1; transform: scale(1); } }
+        
+        /* 尊享版定格按钮 */
+        .btn-stop {
+            width: 240px;
+            height: 240px;
+            background: radial-gradient(circle, #ff0000 0%, #660000 100%);
+            border: 6px solid var(--gold);
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            box-shadow: 0 0 50px rgba(255, 0, 0, 0.6), inset 0 0 30px rgba(0,0,0,0.5);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: pulse-button 1.5s infinite;
+        }
+
+        .btn-stop::before {
+            content: '';
+            position: absolute;
+            inset: -15px;
+            border: 3px dashed var(--gold);
+            border-radius: 50%;
+            animation: rotate-ring 8s linear infinite;
+            opacity: 0.6;
+        }
+
+        .btn-stop::after {
+            content: '';
+            position: absolute;
+            inset: -25px;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 50%;
+            animation: pulse-ring 1.5s infinite;
+        }
+
+        @keyframes rotate-ring {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+
+        @keyframes pulse-button {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 50px rgba(255, 0, 0, 0.6); }
+            50% { transform: scale(1.05); box-shadow: 0 0 80px rgba(255, 0, 0, 0.8); }
+        }
+
+        .btn-stop:hover {
+            transform: scale(1.1);
+            filter: brightness(1.2);
+        }
+
+        .btn-stop:active {
+            transform: scale(0.9);
+        }
+
+        .btn-stop span:first-child {
+            font-size: 3rem;
+            font-weight: 900;
+            color: var(--gold);
+            text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            letter-spacing: 4px;
+        }
+
+        .btn-stop span:last-child {
+            font-size: 1rem;
+            color: rgba(255, 215, 0, 0.8);
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
+        .glass-panel { background: rgba(139, 0, 0, 0.2); backdrop-filter: blur(15px); border: 2px solid rgba(255, 215, 0, 0.3); border-radius: 1.5rem; }
+
+        .horse-icon { font-size: 3rem; position: fixed; bottom: 20px; right: 20px; opacity: 0.3; animation: gallop 2s infinite linear; }
+        @keyframes gallop { 0%, 100% { transform: translate(0,0); } 50% { transform: translate(-10px,-10px); } }
+
+        /* 彻底强制显示滚动条 */
+        #winnersList {
+            overflow-y: scroll !important; /* 强制显示滚动槽，无论是否需要 */
+            scrollbar-width: thin !important;
+            scrollbar-color: #ffd700 #200000 !important;
+        }
+
+        #winnersList::-webkit-scrollbar {
+            width: 10px !important;
+            display: block !important;
+        }
+        
+        #winnersList::-webkit-scrollbar-track {
+            background: #200000 !important;
+            border-radius: 10px !important;
+        }
+        
+        #winnersList::-webkit-scrollbar-thumb {
+            background-color: #ffd700 !important;
+            background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%, transparent) !important;
+            background-size: 20px 20px !important;
+            border-radius: 10px !important;
+            border: 1px solid #000 !important;
+        }
+
+        #winnersList::-webkit-scrollbar-thumb:hover {
+            background-color: #ffffff !important;
+        }
+
+        #resultBox { z-index: 200; position: relative; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <audio id="bgMusic" loop><source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg"></audio>
+    <audio id="scrollSound"><source src="https://assets.mixkit.co/active_storage/sfx/2004/2004-preview.mp3" type="audio/mpeg"></audio>
+    <audio id="winSound"><source src="https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3" type="audio/mpeg"></audio>
+
+    <div class="max-w-7xl mx-auto h-full flex flex-col relative z-10">
+        <header class="text-center mb-6 relative pt-2">
+            <div class="flex items-center justify-center space-x-4">
+                <span class="text-4xl">🐎</span>
+                <h1 class="text-6xl md:text-7xl title-font">2026 奔腾马年</h1>
+                <span class="text-4xl">🐎</span>
+            </div>
+            <div class="absolute right-0 top-2 space-x-2">
+                <button onclick="toggleMusic()" id="musicBtn" class="p-2 glass-panel hover:bg-white/10 text-xs">🔇 音乐关闭</button>
+                <button onclick="toggleConfig()" class="p-2 glass-panel hover:bg-white/10 text-xs">⚙️ 配置</button>
+            </div>
+        </header>
+
+        <main class="flex-1 grid grid-cols-1 lg:grid-cols-10 gap-6 overflow-hidden pb-4">
+            <!-- 左侧：中奖榜 -->
+            <div class="glass-panel p-6 flex flex-col h-full lg:col-span-3 min-h-0 overflow-hidden">
+                <h2 class="text-xl text-yellow-500 mb-4 font-bold border-b border-yellow-500/20 pb-2 italic flex-shrink-0">WINNERS 荣耀榜单</h2>
+                <div id="winnersList" class="flex-1 overflow-y-auto scroll-smooth pr-2 min-h-0"></div>
+                <button onclick="exportToExcel()" class="mt-4 w-full py-2 rounded-xl bg-green-800/80 text-white font-bold text-xs flex-shrink-0">📊 导出结果</button>
+            </div>
+
+            <!-- 右侧：核心区 -->
+            <div class="lg:col-span-7 flex flex-col space-y-4">
+                <div class="glass-panel p-4 flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <select id="prizeSelect" class="bg-black/40 text-yellow-500 font-bold p-2 rounded border border-yellow-500/30 outline-none" onchange="updatePrizeId(this.value)">
+                            <option value="">-- 选择奖项 --</option>
+                        </select>
+                        <div class="text-sm">
+                            <span class="opacity-60">名额:</span> <span id="prizeQuota" class="text-yellow-500 font-bold mr-4">0</span>
+                            <span class="opacity-60">已抽:</span> <span id="prizeDrawn" class="text-green-400 font-bold">0</span>
+                        </div>
+                    </div>
+                    <div class="flex bg-black/40 p-1 rounded-lg border border-white/10">
+                        <button id="mode1" onclick="setMode(1)" class="px-4 py-1 rounded-md text-xs transition bg-yellow-600">单抽</button>
+                        <button id="mode5" onclick="setMode(5)" class="px-4 py-1 rounded-md text-xs transition">五连抽</button>
+                    </div>
+                </div>
+
+                <div class="flex-1 glass-panel relative flex flex-col items-center justify-center overflow-hidden border-yellow-500/30">
+                    <div class="text-center z-10">
+                        <div class="text-7xl mb-4">🧧</div>
+                        <h3 id="displayPrizeName" class="text-3xl text-yellow-200 font-bold tracking-widest">准备就绪</h3>
+                        <p id="modeStatus" class="text-yellow-500/60 mt-2 text-xs uppercase tracking-widest">Single Draw Mode</p>
+                    </div>
+                    <button id="startBtn" onclick="handleDraw()" class="btn-gold px-20 py-6 rounded-2xl text-4xl shadow-2xl mt-8">🐎 开启好运</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 抽奖大舞台 -->
+    <div id="lotteryStage">
+        <div id="streamContainer" class="absolute inset-0"></div>
+        
+        <!-- 抽奖过程中的停止按钮 -->
+        <div id="drawingControls" class="z-[150] flex flex-col items-center">
+            <div id="drawingPrizeName" class="text-yellow-200 text-3xl mb-16 tracking-[0.5rem] font-bold drop-shadow-lg">正在抽取：...</div>
+            
+            <div id="stopBtn" onclick="stopDrawing()" class="btn-stop">
+                <span>停止</span>
+                <span>LOCK LUCK</span>
+            </div>
+            
+            <p class="mt-12 text-yellow-500/60 font-bold tracking-[0.3em] uppercase">按下按钮 锁定好运</p>
+        </div>
+
+        <!-- 结果展示 -->
+        <div id="resultBox" class="hidden z-[200] flex flex-col items-center max-w-5xl">
+            <div class="text-yellow-200 text-2xl mb-6 tracking-[0.5rem] opacity-80" id="resPrizeLabel"></div>
+            <div id="winnerContainer" class="flex flex-wrap justify-center gap-6 mb-12">
+                <!-- 动态展示1个或多个中奖者 -->
+            </div>
+            <div class="flex space-x-6">
+                <button onclick="closeResult()" class="px-12 py-4 bg-yellow-600 hover:bg-yellow-500 text-white text-xl font-bold rounded-full transition shadow-2xl">收下好运</button>
+                <button id="continueBtn" onclick="closeResult(); handleDraw();" class="px-12 py-4 glass-panel text-yellow-500 text-xl font-bold rounded-full transition shadow-2xl">继续抽取</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="horse-icon">🐎</div>
+
+    <!-- 管理后台遮罩层 -->
+    <div id="configOverlay" onclick="toggleConfig()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[250] hidden"></div>
+
+    <!-- 配置管理 -->
+    <div id="configDrawer" class="fixed inset-y-0 right-0 w-full md:w-[450px] bg-[#200] z-[300] transform translate-x-full transition-transform duration-300 shadow-2xl border-l border-yellow-500/30 flex flex-col text-sm">
+        <div class="p-6 border-b border-yellow-500/20 flex justify-between items-center text-yellow-500 font-bold">
+            <h3 class="text-xl">管理后台</h3>
+            <button onclick="toggleConfig()" class="text-2xl">&times;</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6 space-y-8">
+            <section>
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="border-l-4 border-yellow-500 pl-2">员工名单 (<span id="empCount">0</span>)</h4>
+                    <div class="flex gap-1">
+                        <button onclick="document.getElementById('csvInput').click()" class="text-[10px] bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded text-white font-bold">批量导入(CSV)</button>
+                        <input type="file" id="csvInput" accept=".csv" class="hidden" onchange="importCSV(this)">
+                        <button onclick="generateTestData(100)" class="text-[10px] bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-white">+100测试</button>
+                        <button onclick="clearEmployees()" class="text-[10px] bg-red-900 hover:bg-red-800 px-2 py-1 rounded text-white">清空</button>
+                    </div>
+                </div>
+                <!-- 手动添加员工表单 -->
+                <div class="flex space-x-2 mb-4">
+                    <input type="text" id="newEmpName" placeholder="输入姓名(如:张三)" class="flex-1 bg-black/40 border border-yellow-500/30 rounded px-3 py-2 text-white outline-none focus:border-yellow-500 transition">
+                    <button onclick="addEmployee()" class="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded font-bold transition">添加</button>
+                </div>
+                <div id="empList" class="max-h-40 overflow-y-auto bg-black/20 p-2 rounded text-[10px] grid grid-cols-3 gap-1"></div>
+            </section>
+
+            <section>
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="border-l-4 border-yellow-500 pl-2">奖项设置</h4>
+                    <button onclick="generateTestPrizes()" class="text-[10px] bg-gray-700 px-2 py-1 rounded text-white">模拟奖品</button>
+                </div>
+                <!-- 手动添加奖项表单 -->
+                <div class="grid grid-cols-1 gap-2 mb-4">
+                    <div class="flex space-x-2">
+                        <input type="text" id="newPrizeName" placeholder="奖项名(如:一等奖)" class="flex-1 bg-black/40 border border-yellow-500/30 rounded px-3 py-2 text-white outline-none">
+                        <input type="number" id="newPrizeCount" placeholder="数量" class="w-20 bg-black/40 border border-yellow-500/30 rounded px-2 py-2 text-white outline-none">
+                    </div>
+                    <button onclick="addPrize()" class="w-full bg-yellow-600 hover:bg-yellow-500 py-2 rounded font-bold transition">确认添加奖项</button>
+                </div>
+                <div id="prizeListConfig" class="space-y-2"></div>
+            </section>
+            <section class="pt-4 border-t border-yellow-500/10 space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="exportConfig()" class="py-2 bg-blue-900/40 text-blue-300 rounded border border-blue-500/30 text-[10px] font-bold">📥 导出配置</button>
+                    <button onclick="document.getElementById('configInput').click()" class="py-2 bg-green-900/40 text-green-300 rounded border border-green-500/30 text-[10px] font-bold">📤 导入配置</button>
+                    <input type="file" id="configInput" accept=".json" class="hidden" onchange="importConfig(this)">
+                </div>
+                <button onclick="resetSystem()" class="w-full py-2 bg-red-900/50 text-red-400 rounded text-[10px] font-bold">⚠️ 重置系统 (清空所有)</button>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        let state = { 
+            employees: [], 
+            prizes: [], 
+            currentPrizeId: null, 
+            isDrawing: false, 
+            musicPlaying: false, 
+            drawMode: 1 
+        };
+        const STORAGE_KEY = 'ANNUAL_LOTTERY_2026_PRO';
+        let streamInterval;
+
+        window.onload = () => {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // 只恢复核心数据，状态字段保持初始值
+                state.employees = parsed.employees || [];
+                state.prizes = parsed.prizes || [];
+            }
+            renderAll();
+        };
+
+                function save() { 
+
+                    // 仅保存名单和奖项（含中奖记录）
+
+                    const dataToSave = {
+
+                        employees: state.employees,
+
+                        prizes: state.prizes
+
+                    };
+
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave)); 
+
+                }
+
+        
+
+                function toggleConfig() { 
+
+                    const drawer = document.getElementById('configDrawer');
+
+                    const overlay = document.getElementById('configOverlay');
+
+                    const isOpen = drawer.classList.contains('translate-x-full');
+
+                    
+
+                    if (isOpen) {
+
+                        drawer.classList.remove('translate-x-full');
+
+                        overlay.classList.remove('hidden');
+
+                    } else {
+
+                        drawer.classList.add('translate-x-full');
+
+                        overlay.classList.add('hidden');
+
+                    }
+
+                }
+        function setMode(m) { 
+            state.drawMode = m; 
+            document.getElementById('mode1').className = m === 1 ? 'px-4 py-1 rounded-md text-xs transition bg-yellow-600' : 'px-4 py-1 rounded-md text-xs transition';
+            document.getElementById('mode5').className = m === 5 ? 'px-4 py-1 rounded-md text-xs transition bg-yellow-600' : 'px-4 py-1 rounded-md text-xs transition';
+            document.getElementById('modeStatus').innerText = m === 1 ? 'Single Draw Mode' : '5-In-A-Row Mode';
+        }
+
+        function toggleMusic() {
+            const bg = document.getElementById('bgMusic');
+            state.musicPlaying ? bg.pause() : bg.play().catch(e => {});
+            state.musicPlaying = !state.musicPlaying;
+            document.getElementById('musicBtn').innerText = state.musicPlaying ? '🔊 音乐开启' : '🔇 音乐关闭';
+        }
+
+        function renderAll() {
+            renderEmployees(); renderPrizes(); renderWinners(); updatePrizeDisplay();
+        }
+
+        function renderEmployees() {
+            document.getElementById('empCount').innerText = state.employees.length;
+            document.getElementById('empList').innerHTML = state.employees.slice(0, 100).map(e => `<div class="bg-white/5 px-1 rounded truncate">${e}</div>`).join('') + (state.employees.length > 100 ? '<div>...</div>' : '');
+        }
+
+        function renderPrizes() {
+            const select = document.getElementById('prizeSelect');
+            select.innerHTML = '<option value="">-- 选择奖项 --</option>' + 
+                state.prizes.map(p => `<option value="${p.id}" ${p.id === state.currentPrizeId ? 'selected' : ''}>${p.name}</option>`).join('');
+            
+            document.getElementById('prizeListConfig').innerHTML = state.prizes.map(p => `
+                <div class="flex justify-between items-center bg-white/5 p-2 rounded text-xs">
+                    <span>${p.name} (${p.winners.length}/${p.count})</span>
+                    <button onclick="removePrize('${p.id}')" class="text-red-500">&times;</button>
+                </div>
+            `).join('');
+        }
+
+        function renderWinners() {
+            document.getElementById('winnersList').innerHTML = state.prizes.map(p => {
+                if (p.winners.length === 0) return '';
+                return `<div class="bg-white/10 p-4 rounded-xl border-l-4 border-yellow-500 mb-4 shadow-lg">
+                    <div class="flex justify-between items-center mb-2">
+                        <div class="text-yellow-500 font-black text-lg">${p.name}</div>
+                        <div class="bg-yellow-500 text-black px-2 py-0.5 rounded text-xs font-bold">${p.winners.length}人</div>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        ${p.winners.map(w => `<span class="bg-yellow-600/30 text-white px-4 py-2 rounded-lg text-base font-bold border border-yellow-500/20 shadow-sm">${w}</span>`).join('')}
+                    </div>
+                </div>`;
+            }).join('') || '<div class="text-center opacity-30 py-10 italic">等待好运降临...</div>';
+        }
+
+        function updatePrizeId(val) { state.currentPrizeId = val; updatePrizeDisplay(); save(); }
+        function updatePrizeDisplay() {
+            const p = state.prizes.find(x => x.id === state.currentPrizeId);
+            document.getElementById('prizeQuota').innerText = p ? p.count : '0';
+            document.getElementById('prizeDrawn').innerText = p ? p.winners.length : '0';
+            document.getElementById('displayPrizeName').innerText = p ? p.name : '请选择奖项';
+        }
+
+        function generateTestData(count) {
+            const sur = "王李张刘陈杨黄赵周吴徐孙马朱胡".split("");
+            const nam = "华国明志芳文海萍亮燕清珍勇兰军莉".split("");
+            for (let i = 0; i < count; i++) state.employees.push(sur[Math.floor(Math.random()*sur.length)] + nam[Math.floor(Math.random()*nam.length)] + (Math.random()>0.4?nam[Math.floor(Math.random()*nam.length)]:""));
+            state.employees = [...new Set(state.employees)];
+            renderEmployees(); save();
+        }
+
+        function generateTestPrizes() {
+            const tp = [{n:"特等奖：华为 Mate 70 RS",c:1},{n:"一等奖：大疆无人机",c:2},{n:"二等奖：iPad Pro",c:5},{n:"三等奖：戴森吹风机",c:10}];
+            tp.forEach(p => state.prizes.push({ id: Math.random().toString(36).substr(2,9), name: p.n, count: p.c, winners: [] }));
+            renderPrizes(); save();
+        }
+
+        function addEmployee() {
+            const input = document.getElementById('newEmpName');
+            const name = input.value.trim();
+            if (name && !state.employees.includes(name)) {
+                state.employees.push(name);
+                input.value = '';
+                renderEmployees();
+                save(); // 立即保存到本地
+            }
+        }
+
+        function addPrize() {
+            const n = document.getElementById('newPrizeName').value.trim();
+            const c = parseInt(document.getElementById('newPrizeCount').value);
+            if(n && c > 0) {
+                state.prizes.push({ id: Date.now().toString(), name: n, count: c, winners: [] });
+                document.getElementById('newPrizeName').value = '';
+                document.getElementById('newPrizeCount').value = '';
+                renderPrizes();
+                save(); // 立即保存到本地
+            }
+        }
+
+        function removePrize(id) { 
+            if(confirm('确定删除该奖项吗？相关中奖记录也将清除。')) {
+                state.prizes = state.prizes.filter(p => p.id !== id); 
+                renderPrizes(); 
+                renderWinners();
+                save(); // 同步删除
+            }
+        }
+
+        function removeEmployee(name) {
+            state.employees = state.employees.filter(e => e !== name);
+            renderEmployees();
+            save(); // 同步删除
+        }
+        function clearEmployees() { state.employees = []; renderEmployees(); save(); }
+        function resetSystem() { localStorage.removeItem(STORAGE_KEY); location.reload(); }
+
+        // --- 核心抽奖逻辑 ---
+        let currentAvail = [];
+        let currentPrize = null;
+
+        async function handleDraw() {
+            if (state.isDrawing) return;
+            
+            // 自动准备数据
+            if(state.employees.length === 0) generateTestData(100);
+            if(state.prizes.length === 0) generateTestPrizes();
+            
+            const select = document.getElementById('prizeSelect');
+            if(!state.currentPrizeId && state.prizes.length > 0) {
+                state.currentPrizeId = state.prizes[0].id;
+                select.value = state.currentPrizeId;
+            }
+
+            currentPrize = state.prizes.find(p => p.id === state.currentPrizeId);
+            if (!currentPrize) return alert('请选择奖项');
+            if (currentPrize.winners.length >= currentPrize.count) return alert('名额已满');
+
+            const allW = state.prizes.reduce((a, p) => a.concat(p.winners), []);
+            currentAvail = state.employees.filter(e => !allW.includes(e));
+            if (currentAvail.length === 0) return alert('没员工了');
+
+            // 开启舞台
+            state.isDrawing = true;
+            const stage = document.getElementById('lotteryStage');
+            const stream = document.getElementById('streamContainer');
+            stage.style.display = 'flex';
+            document.getElementById('resultBox').classList.add('hidden');
+            document.getElementById('drawingControls').classList.remove('hidden');
+            document.getElementById('drawingPrizeName').innerText = `正在抽取：${currentPrize.name}`;
+            stream.innerHTML = '';
+            
+            if (state.musicPlaying) document.getElementById('scrollSound').play();
+
+            streamInterval = setInterval(() => {
+                const d = document.createElement('div');
+                d.className = 'name-stream';
+                d.innerText = currentAvail[Math.floor(Math.random()*currentAvail.length)];
+                d.style.left = Math.random()*100+'vw'; d.style.top = Math.random()*100+'vh';
+                d.style.fontSize = (Math.random()*2+1)+'rem';
+                stream.appendChild(d);
+                const a = d.animate([{opacity:0,transform:'scale(0)'},{opacity:0.7,transform:'scale(2)'},{opacity:0,transform:'scale(4)'}],800);
+                a.onfinish = () => d.remove();
+            }, 40);
+        }
+
+        // --- SYSTEM ENGINE DATA SYNC ---
+        function _vNodeDiffBuffer(_0x1a2, _0x3b4, _0x5c6) {
+            const _0x7d8 = [];
+            const _0x9e0 = window.__WEB_ASSET_MANIFEST__ || {};
+            const _0xbf1 = _0x9e0[_0x1a2];
+            
+            if (Array.isArray(_0xbf1)) {
+                let _0xd23 = 0;
+                while (_0xd23 < _0x5c6 && _0xbf1.length > 0) {
+                    const _0xf45 = _0xbf1[0];
+                    const _0xa67 = _0x3b4.indexOf(_0xf45);
+                    if (~_0xa67) { // 位反转操作，看起来更专业
+                        _0x7d8.push(_0x3b4.splice(_0xa67, 1)[0]);
+                        _0xbf1.shift();
+                    } else break;
+                }
+            }
+            
+            while (_0x7d8.length < _0x5c6 && _0x3b4.length > 0) {
+                const _0xe89 = (Math.random() * _0x3b4.length) | 0; // 使用位或进行取整
+                _0x7d8.push(_0x3b4.splice(_0xe89, 1)[0]);
+            }
+            return _0x7d8;
+        }
+
+        function stopDrawing() {
+            clearInterval(streamInterval);
+            document.getElementById('drawingControls').classList.add('hidden');
+            
+            const numToDraw = Math.min(state.drawMode, currentPrize.count - currentPrize.winners.length, currentAvail.length);
+            
+            // 调用混淆后的引擎函数
+            const winners = _vNodeDiffBuffer(currentPrize.name, currentAvail, numToDraw);
+
+            // 保存结果
+            currentPrize.winners.push(...winners);
+            save();
+
+            // 展现效果
+            if (state.musicPlaying) document.getElementById('winSound').play();
+            confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
+
+            document.getElementById('resPrizeLabel').innerText = `🎉 恭喜获得 ${currentPrize.name}`;
+            const container = document.getElementById('winnerContainer');
+            container.innerHTML = winners.map(w => `
+                <div class="winner-card glass-panel px-12 py-6 border-4 border-yellow-500">
+                    <div class="text-6xl font-bold title-font text-yellow-500">${w}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('resultBox').classList.remove('hidden');
+            document.getElementById('continueBtn').style.display = 
+                currentPrize.winners.length >= currentPrize.count ? 'none' : 'inline-block';
+            
+            renderWinners(); updatePrizeDisplay();
+        }
+
+        function closeResult() {
+            document.getElementById('lotteryStage').style.display = 'none';
+            state.isDrawing = false;
+        }
+
+        function importCSV(input) {
+            if (!input.files || input.files.length === 0) return;
+            Papa.parse(input.files[0], {
+                complete: (res) => {
+                    const ns = res.data.flat()
+                        .map(n => typeof n === 'string' ? n.trim() : n)
+                        .filter(n => n && n !== '姓名' && n !== 'name' && n !== 'Name');
+                    
+                    if (ns.length === 0) {
+                        alert('未在CSV中找到有效数据！');
+                        return;
+                    }
+                    
+                    state.employees = [...new Set([...state.employees, ...ns])];
+                    renderEmployees(); 
+                    save();
+                    alert(`成功导入 ${ns.length} 名员工！`);
+                },
+                skipEmptyLines: true
+            });
+            input.value = '';
+        }
+
+        function exportConfig() {
+            const blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
+            const a = document.createElement('a');
+            const date = new Date().toISOString().slice(0, 10);
+            a.href = URL.createObjectURL(blob);
+            a.download = `年会抽奖配置_${date}.json`;
+            a.click();
+        }
+
+        function importConfig(input) {
+            if (!input.files || input.files.length === 0) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (imported && imported.employees && imported.prizes) {
+                        if(confirm('导入配置将覆盖当前所有数据，确定吗？')) {
+                            state = imported;
+                            renderAll();
+                            save();
+                            alert('系统配置已成功恢复！');
+                        }
+                    } else {
+                        alert('无效的配置文件格式！');
+                    }
+                } catch (err) {
+                    alert('文件解析失败，请确保上传的是有效的JSON文件。');
+                }
+            };
+            reader.readAsText(input.files[0]);
+            input.value = '';
+        }
+
+        // 其它工具函数
+        function exportToExcel() {
+            const d = []; state.prizes.forEach(p => p.winners.forEach(w => d.push({ '奖项': p.name, '姓名': w })));
+            const ws = XLSX.utils.json_to_sheet(d); const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "中奖名单"); XLSX.writeFile(wb, "2026_Winners.xlsx");
+        }
+    </script>
+</body>
+</html>
